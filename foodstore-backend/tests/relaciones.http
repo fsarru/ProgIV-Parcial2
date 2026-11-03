@@ -1,0 +1,371 @@
+# =============================================================================
+# Food Store - Pruebas de CATEGORÍAS y RELACIÓN N:N Producto-Categoría
+# (Requerimiento 3)
+# Requiere el backend en http://localhost:8000  ->  fastapi dev app/main.py
+# Cada request indica entre paréntesis el código HTTP esperado.
+# Se puede ejecutar completo y repetirlo: los nombres usan {{$timestamp}}.
+# =============================================================================
+
+@base = http://localhost:8000/api/v1
+
+### 0. Catálogo de unidades (200) - para crear productos de prueba
+# @name unidades
+GET {{base}}/unidades-medida
+# Del seed: $[0] = kilogramo  |  $[4] = pieza
+
+
+# =============================================================================
+# CATEGORÍAS: alta
+# =============================================================================
+
+### 1.1 Crear categoría "Pastas" (201)
+# @name cPastas
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "Pastas {{$timestamp}}",
+  "descripcion": "Fideos, ravioles y ñoquis"
+}
+
+### 1.2 Crear categoría "Postres", sin descripción (201)
+# @name cPostres
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "Postres {{$timestamp}}"
+}
+
+### 1.3 Crear categoría "Bebidas" (201)
+# @name cBebidas
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "Bebidas {{$timestamp}}",
+  "descripcion": "Gaseosas, aguas y jugos"
+}
+
+### 1.4 RN-01: nombre de menos de 3 caracteres (422)
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "ab"
+}
+
+### 1.5 RN-01: sin nombre (422)
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "descripcion": "Falta el nombre"
+}
+
+### 1.6 RN-02: nombre repetido entre categorías activas (409)
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "{{cPastas.response.body.nombre}}"
+}
+
+
+# =============================================================================
+# CATEGORÍAS: consulta
+# =============================================================================
+
+### 2.1 Listar categorías activas (200)
+GET {{base}}/categorias
+
+### 2.2 Filtro search: coincidencia parcial sin distinguir mayúsculas (200)
+GET {{base}}/categorias?search=POSTRES
+
+### 2.3 Filtro activo=true (200)
+GET {{base}}/categorias?activo=true
+
+### 2.4 Filtro activo=false: solo anuladas (200)
+GET {{base}}/categorias?activo=false
+
+### 2.5 Detalle de una categoría (200)
+GET {{base}}/categorias/{{cPastas.response.body.id}}
+
+### 2.6 RN-03: categoría inexistente (404)
+GET {{base}}/categorias/9999
+
+
+# =============================================================================
+# CATEGORÍAS: actualización
+# =============================================================================
+
+### 3.1 Actualizar nombre y descripción (200)
+PUT {{base}}/categorias/{{cBebidas.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{cBebidas.response.body.nombre}}",
+  "descripcion": "Bebidas con y sin alcohol"
+}
+
+### 3.2 RN-03: PUT sobre categoría inexistente (404)
+PUT {{base}}/categorias/9999
+Content-Type: application/json
+
+{
+  "nombre": "No existe"
+}
+
+### 3.3 RN-01: PUT con nombre corto (422)
+PUT {{base}}/categorias/{{cBebidas.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "ab"
+}
+
+### 3.4 RN-02: PUT con el nombre de otra categoría activa (409)
+PUT {{base}}/categorias/{{cBebidas.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{cPastas.response.body.nombre}}"
+}
+
+
+# =============================================================================
+# PRODUCTOS DE PRUEBA para clasificar
+# =============================================================================
+
+### 4.1 Producto A: lasaña (201)
+# @name pLasagna
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Lasaña boloñesa {{$timestamp}}",
+  "precio_base": 5200,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 12
+}
+
+### 4.2 Producto B: helado por kilo (201)
+# @name pHelado
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Helado de dulce de leche {{$timestamp}}",
+  "precio_base": 8900.50,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": 4.250
+}
+
+
+# =============================================================================
+# N:N: clasificar productos en categorías
+# =============================================================================
+
+### 5.1 Clasificar la lasaña en "Pastas" como categoría principal (201)
+POST {{base}}/productos/{{pLasagna.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cPastas.response.body.id}},
+  "es_principal": true
+}
+
+### 5.2 Clasificar la lasaña en una segunda categoría, no principal (201)
+POST {{base}}/productos/{{pLasagna.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cPostres.response.body.id}}
+}
+
+### 5.3 Listar categorías de la lasaña: Pastas principal, Postres no (200)
+GET {{base}}/productos/{{pLasagna.response.body.id}}/categorias
+
+### 5.4 RN-09: marcar "Postres" como principal; la anterior deja de serlo (201)
+POST {{base}}/productos/{{pHelado.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cPostres.response.body.id}},
+  "es_principal": true
+}
+
+### 5.5 RN-09: clasificar el helado en "Bebidas" como principal (201)
+POST {{base}}/productos/{{pHelado.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cBebidas.response.body.id}},
+  "es_principal": true
+}
+
+### 5.6 RN-09: GET - el vínculo anterior (Postres) quedó en es_principal=false (200)
+GET {{base}}/productos/{{pHelado.response.body.id}}/categorias
+
+### 5.7 El detalle del producto incluye sus categorías (200)
+GET {{base}}/productos/{{pHelado.response.body.id}}
+
+
+# =============================================================================
+# N:N: errores
+# =============================================================================
+
+### 6.1 RN-07: clasificar dos veces en la misma categoría (409)
+POST {{base}}/productos/{{pLasagna.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cPastas.response.body.id}}
+}
+
+### 6.2 RN-03: categoria_id inexistente (404)
+POST {{base}}/productos/{{pLasagna.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": 9999
+}
+
+### 6.3 RN-03: producto inexistente (404)
+POST {{base}}/productos/9999/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cPastas.response.body.id}}
+}
+
+### 6.4 Body inválido: falta categoria_id (422)
+POST {{base}}/productos/{{pLasagna.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "es_principal": true
+}
+
+### 6.5 RN-03: listar categorías de un producto inexistente (404)
+GET {{base}}/productos/9999/categorias
+
+
+# =============================================================================
+# Filtro categoria_id del listado de productos (sin duplicar filas)
+# =============================================================================
+
+### 7.1 Productos de "Postres": la lasaña y el helado, cada uno una sola vez (200)
+# La lasaña tiene 2 categorías y el helado 2: ninguno debe repetirse.
+GET {{base}}/productos?categoria_id={{cPostres.response.body.id}}
+
+### 7.2 Productos de "Pastas": solo la lasaña (200)
+GET {{base}}/productos?categoria_id={{cPastas.response.body.id}}
+
+### 7.3 Filtro categoria_id combinado con search (200)
+GET {{base}}/productos?categoria_id={{cPostres.response.body.id}}&search=helado
+
+### 7.4 Categoría sin productos: lista vacía (200)
+GET {{base}}/productos?categoria_id=9999
+
+
+# =============================================================================
+# RN-06: anular una categoría NO anula sus productos
+# =============================================================================
+
+### 8.1 Categoría temporal (201)
+# @name cTemporal
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "Temporal {{$timestamp}}"
+}
+
+### 8.2 Producto clasificado solo en la categoría temporal (201)
+# @name pTemporal
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Producto temporal {{$timestamp}}",
+  "precio_base": 100,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 3
+}
+
+### 8.3 Clasificar el producto en la categoría temporal (201)
+POST {{base}}/productos/{{pTemporal.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cTemporal.response.body.id}},
+  "es_principal": true
+}
+
+### 8.4 Anular la categoría temporal (204)
+DELETE {{base}}/categorias/{{cTemporal.response.body.id}}
+
+### 8.5 El producto sigue ACTIVO y conserva su stock y disponible (200)
+GET {{base}}/productos/{{pTemporal.response.body.id}}
+
+### 8.6 El producto sigue en el listado de productos activos (200)
+GET {{base}}/productos?search=Producto temporal
+
+### 8.7 La categoría anulada aparece con activo=false en el vínculo (200)
+GET {{base}}/productos/{{pTemporal.response.body.id}}/categorias
+
+
+# =============================================================================
+# Baja lógica de categorías y RN-08
+# =============================================================================
+
+### 9.1 RN-04: anular de nuevo la categoría ya anulada (409)
+DELETE {{base}}/categorias/{{cTemporal.response.body.id}}
+
+### 9.2 La categoría anulada se puede consultar por id (200)
+GET {{base}}/categorias/{{cTemporal.response.body.id}}
+
+### 9.3 RN-05: PUT sobre una categoría anulada (409)
+PUT {{base}}/categorias/{{cTemporal.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "Nuevo nombre"
+}
+
+### 9.4 No aparece en el listado por defecto (200)
+GET {{base}}/categorias?search=Temporal
+
+### 9.5 Sí aparece con activo=false (200)
+GET {{base}}/categorias?activo=false&search=Temporal
+
+### 9.6 RN-08: clasificar un producto en una categoría anulada (409)
+POST {{base}}/productos/{{pLasagna.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cTemporal.response.body.id}}
+}
+
+### 9.7 RN-02: la categoría anulada libera su nombre (201)
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "{{cTemporal.response.body.nombre}}"
+}
+
+### 9.8 RN-03: anular una categoría inexistente (404)
+DELETE {{base}}/categorias/9999
+
+### 9.9 Anular el producto temporal (204)
+DELETE {{base}}/productos/{{pTemporal.response.body.id}}
+
+### 9.10 RN-08: clasificar un producto anulado (409)
+POST {{base}}/productos/{{pTemporal.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cPastas.response.body.id}}
+}

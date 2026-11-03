@@ -1,0 +1,411 @@
+# =============================================================================
+# Food Store - Pruebas del módulo PRODUCTOS (Requerimiento 2)
+# Requiere el backend en http://localhost:8000  ->  fastapi dev app/main.py
+# Cada request indica entre paréntesis el código HTTP esperado.
+# Se puede ejecutar completo y repetirlo: los nombres usan {{$timestamp}}.
+# =============================================================================
+
+@base = http://localhost:8000/api/v1
+
+### 0. Catálogo de unidades de medida (200) - origen del selector de unidad
+# @name unidades
+GET {{base}}/unidades-medida
+
+# Del seed (en orden): $[0] = kilogramo (peso)  |  $[4] = pieza (contable)
+
+
+# =============================================================================
+# POST /productos
+# =============================================================================
+
+### 1.1 Crear producto vendido por kilogramo, con stock decimal (201)
+# @name pKg
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Queso cremoso {{$timestamp}}",
+  "descripcion": "Queso cremoso por kilo",
+  "precio_base": 12.50,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": 3.5,
+  "disponible": true
+}
+
+### 1.2 Crear producto vendido por pieza, stock entero (201)
+# @name pPieza
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Empanada de carne {{$timestamp}}",
+  "precio_base": 450,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 24
+}
+
+### 1.3 Crear sin stock_cantidad: toma 0 por defecto y hay_stock = false (201)
+# @name pSinStock
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Tarta de verdura {{$timestamp}}",
+  "precio_base": 3200,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}}
+}
+
+
+# =============================================================================
+# POST /productos - errores de validación y de negocio
+# =============================================================================
+
+### 2.1 RN-01: nombre de menos de 3 caracteres (422)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "ab",
+  "precio_base": 100,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}}
+}
+
+### 2.2 RN-01: precio_base negativo (422)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Producto precio negativo",
+  "precio_base": -5,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}}
+}
+
+### 2.3 RN-01: stock_cantidad negativo (422)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Producto stock negativo",
+  "precio_base": 100,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": -1
+}
+
+### 2.4 Sin unidad de venta (422)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Producto sin unidad",
+  "precio_base": 100
+}
+
+### 2.5 RN-03: unidad de venta inexistente (404)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Producto unidad inexistente",
+  "precio_base": 100,
+  "unidad_venta_id": 9999
+}
+
+### 2.6 RN-10: stock con decimales sobre unidad contable (422)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "Empanada con stock decimal",
+  "precio_base": 450,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 2.5
+}
+
+### 2.7 RN-02: nombre repetido entre productos activos (409)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "{{pKg.response.body.nombre}}",
+  "precio_base": 99,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}}
+}
+
+# =============================================================================
+# GET /productos - listado, paginación y filtros
+# =============================================================================
+
+### 3.1 Listado por defecto: solo activos, limit=10 (200)
+GET {{base}}/productos
+
+### 3.2 Paginación: skip y limit (200)
+GET {{base}}/productos?skip=1&limit=2
+
+### 3.3 limit fuera de rango, mayor a 50 (422)
+GET {{base}}/productos?limit=51
+
+### 3.4 limit fuera de rango, menor a 1 (422)
+GET {{base}}/productos?limit=0
+
+### 3.5 skip negativo (422)
+GET {{base}}/productos?skip=-1
+
+### 3.6 Filtro search: coincidencia parcial sin distinguir mayúsculas (200)
+GET {{base}}/productos?search=QUESO
+
+### 3.7 Filtro disponible=true (200)
+GET {{base}}/productos?disponible=true
+
+### 3.8 Filtro disponible=false (200)
+GET {{base}}/productos?disponible=false
+
+### 3.9 Filtro activo=false: solo anulados (200)
+GET {{base}}/productos?activo=false
+
+### 3.10 Filtro activo=true equivale al valor por defecto (200)
+GET {{base}}/productos?activo=true
+
+### 3.11 Filtros combinados (200)
+GET {{base}}/productos?search=empanada&disponible=true&limit=5
+
+### 3.12 Parámetro con tipo inválido (422)
+GET {{base}}/productos?disponible=quizas
+
+# El cuarto filtro, categoria_id, se prueba en la sección 9 (y con más detalle
+# en tests/relaciones.http).
+
+
+# =============================================================================
+# GET /productos/{id}
+# =============================================================================
+
+### 4.1 Detalle: unidad de venta anidada, categorías, stock y hay_stock (200)
+GET {{base}}/productos/{{pKg.response.body.id}}
+
+### 4.2 Detalle de un producto sin stock: hay_stock = false (200)
+GET {{base}}/productos/{{pSinStock.response.body.id}}
+
+### 4.3 RN-03: id inexistente (404)
+GET {{base}}/productos/9999
+
+
+# =============================================================================
+# PUT /productos/{id}
+# =============================================================================
+
+### 5.1 Actualizar los campos propios del producto (200)
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pKg.response.body.nombre}}",
+  "descripcion": "Queso cremoso, precio actualizado",
+  "precio_base": 14.75,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": 3.5,
+  "disponible": true
+}
+
+### 5.2 RN-03: PUT sobre id inexistente (404)
+PUT {{base}}/productos/9999
+Content-Type: application/json
+
+{
+  "nombre": "No existe",
+  "precio_base": 10,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}}
+}
+
+### 5.3 RN-01: PUT con nombre corto (422)
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "ab",
+  "precio_base": 10,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}}
+}
+
+### 5.4 RN-03: PUT con unidad de venta inexistente (404)
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pKg.response.body.nombre}}",
+  "precio_base": 10,
+  "unidad_venta_id": 9999,
+  "stock_cantidad": 3.5
+}
+
+### 5.5 RN-02: PUT con el nombre de otro producto activo (409)
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pPieza.response.body.nombre}}",
+  "precio_base": 10,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": 3.5
+}
+
+### 5.6 RN-10: PUT con stock decimal sobre unidad contable (422)
+PUT {{base}}/productos/{{pPieza.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pPieza.response.body.nombre}}",
+  "precio_base": 450,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 10.5
+}
+
+### 5.7 RN-10: cambiar a unidad contable conservando un stock decimal (422)
+# El producto de kilogramo tiene stock 3.5; pasarlo a "pieza" es inválido.
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pKg.response.body.nombre}}",
+  "precio_base": 14.75,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 3.5
+}
+
+### 5.8 PUT que cambia la unidad a pieza con stock entero (200)
+PUT {{base}}/productos/{{pPieza.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pPieza.response.body.nombre}}",
+  "precio_base": 480,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 30
+}
+
+
+# =============================================================================
+# hay_stock (RN-11): se calcula en cada lectura, no se persiste
+# =============================================================================
+
+### 6.1 ANTES: producto con stock 3.5 -> hay_stock = true (200)
+GET {{base}}/productos/{{pKg.response.body.id}}
+
+### 6.2 Llevar el stock a 0 (200)
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pKg.response.body.nombre}}",
+  "precio_base": 14.75,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": 0,
+  "disponible": true
+}
+
+### 6.3 DESPUÉS: stock 0 -> hay_stock = false (200)
+GET {{base}}/productos/{{pKg.response.body.id}}
+
+### 6.4 Reponer stock -> hay_stock vuelve a true (200)
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pKg.response.body.nombre}}",
+  "precio_base": 14.75,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": 8,
+  "disponible": true
+}
+
+
+# =============================================================================
+# disponible vs activo (RN-12): son independientes
+# =============================================================================
+
+### 7.1 Pausar la venta: disponible = false, activo sigue en true (200)
+PUT {{base}}/productos/{{pKg.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pKg.response.body.nombre}}",
+  "precio_base": 14.75,
+  "unidad_venta_id": {{unidades.response.body.$[0].id}},
+  "stock_cantidad": 8,
+  "disponible": false
+}
+
+### 7.2 El producto pausado sigue en el listado de activos (200)
+GET {{base}}/productos?disponible=false&search=queso
+
+
+# =============================================================================
+# DELETE /productos/{id} - baja lógica
+# =============================================================================
+
+### 8.1 Anular el producto sin stock: activo=false y anulado_at (204)
+DELETE {{base}}/productos/{{pSinStock.response.body.id}}
+
+### 8.2 RN-04: anular un producto ya anulado (409)
+DELETE {{base}}/productos/{{pSinStock.response.body.id}}
+
+### 8.3 El producto anulado se puede consultar por id (200)
+GET {{base}}/productos/{{pSinStock.response.body.id}}
+
+### 8.4 RN-05: PUT sobre un producto anulado (409)
+PUT {{base}}/productos/{{pSinStock.response.body.id}}
+Content-Type: application/json
+
+{
+  "nombre": "{{pSinStock.response.body.nombre}}",
+  "precio_base": 1,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}}
+}
+
+### 8.5 El anulado no aparece en el listado por defecto (200)
+GET {{base}}/productos?search=Tarta
+
+### 8.6 Pero sí con activo=false (200)
+GET {{base}}/productos?activo=false&search=Tarta
+
+### 8.7 RN-02: un registro anulado libera su nombre (201)
+POST {{base}}/productos
+Content-Type: application/json
+
+{
+  "nombre": "{{pSinStock.response.body.nombre}}",
+  "precio_base": 3500,
+  "unidad_venta_id": {{unidades.response.body.$[4].id}},
+  "stock_cantidad": 5
+}
+
+### 8.8 RN-03: anular un id inexistente (404)
+DELETE {{base}}/productos/9999
+
+
+# =============================================================================
+# Filtro categoria_id (cuarto filtro del listado)
+# =============================================================================
+
+### 9.1 Crear una categoría para el filtro (201)
+# @name cFiltro
+POST {{base}}/categorias
+Content-Type: application/json
+
+{
+  "nombre": "Categoría filtro {{$timestamp}}"
+}
+
+### 9.2 Clasificar el producto de kilogramo en esa categoría (201)
+POST {{base}}/productos/{{pKg.response.body.id}}/categorias
+Content-Type: application/json
+
+{
+  "categoria_id": {{cFiltro.response.body.id}},
+  "es_principal": true
+}
+
+### 9.3 Filtro categoria_id: devuelve solo los productos de esa categoría (200)
+GET {{base}}/productos?categoria_id={{cFiltro.response.body.id}}
+
+### 9.4 categoria_id sin productos: lista vacía (200)
+GET {{base}}/productos?categoria_id=9999
